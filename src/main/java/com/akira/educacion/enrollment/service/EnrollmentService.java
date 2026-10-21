@@ -44,7 +44,8 @@ import java.util.UUID;
  * el precio acordado y la tasa de IVA vigente como información histórica.
  *
  * <p>
- * No se generan obligaciones ni pagos: {@link InitialChargeGenerator} queda como
+ * No se generan obligaciones ni pagos: {@link InitialChargeGenerator} queda
+ * como
  * punto de extensión deliberadamente sin reglas financieras.
  */
 @Service

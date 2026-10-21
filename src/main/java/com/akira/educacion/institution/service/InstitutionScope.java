@@ -16,12 +16,15 @@ import java.util.UUID;
  *
  * <p>
  * Para usuarios institucionales la institución proviene siempre del token; un
- * {@code institutionId} enviado por el cliente solo se acepta si coincide con la
+ * {@code institutionId} enviado por el cliente solo se acepta si coincide con
+ * la
  * propia institución y nunca se usa como mecanismo de autorización.
  *
  * <p>
- * {@code PLATFORM_ADMIN} no pertenece a una institución: para operar sobre datos
- * institucionales debe indicar el {@code institutionId} de forma explícita. Cada
+ * {@code PLATFORM_ADMIN} no pertenece a una institución: para operar sobre
+ * datos
+ * institucionales debe indicar el {@code institutionId} de forma explícita.
+ * Cada
  * acceso global queda registrado en la auditoría. La resolución ocurre en el
  * controlador, fuera de la transacción del servicio, para que el evento de
  * auditoría se confirme aunque la consulta sea de solo lectura.

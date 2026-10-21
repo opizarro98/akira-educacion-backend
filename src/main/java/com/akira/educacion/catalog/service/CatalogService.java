@@ -42,7 +42,8 @@ import java.util.UUID;
  * Catálogo institucional: niveles, períodos, servicios, planes y tarifas.
  *
  * <p>
- * Ningún precio se duplica en código: las tarifas viven en {@link ServiceRate} y
+ * Ningún precio se duplica en código: las tarifas viven en {@link ServiceRate}
+ * y
  * solo se copian a la matrícula cuando esta se crea o edita.
  */
 @Service
