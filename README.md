@@ -64,7 +64,7 @@ env DB_URL=jdbc:postgresql://localhost:5432/<base_local> \
     ./mvnw -B clean test
 ```
 
-Resultado verificado: **22 pruebas, 0 fallos**.
+Resultado verificado: **49 pruebas, 0 fallos** (Fase 1 + Fase 2).
 
 ## Endpoints de la Fase 1
 
@@ -83,6 +83,68 @@ Resultado verificado: **22 pruebas, 0 fallos**.
 
 Los errores usan `ProblemDetail` (RFC 9457) con `code` y, en validaciones, `errors`.
 
+## Endpoints de la Fase 2
+
+Todas las rutas institucionales resuelven la institución desde el token. Un usuario
+institucional que envíe `institutionId` de otra institución recibe `403`. `PLATFORM_ADMIN`
+no pertenece a una institución: debe indicar `?institutionId=` explícitamente y el acceso
+queda registrado como `PLATFORM_GLOBAL_ACCESS` en la auditoría.
+
+### Estudiantes
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/students?search=&status=&page=&size=` | `STUDENT_READ` |
+| POST | `/api/v1/students` | `STUDENT_WRITE` |
+| GET | `/api/v1/students/{id}` | `STUDENT_READ` |
+| PUT | `/api/v1/students/{id}` | `STUDENT_WRITE` |
+| DELETE | `/api/v1/students/{id}` | `STUDENT_WRITE` (409 si tiene matrículas) |
+| GET | `/api/v1/students/{id}/representatives` | `REPRESENTATIVE_READ` |
+| POST | `/api/v1/students/{id}/representatives` | `REPRESENTATIVE_WRITE` |
+| PUT | `/api/v1/students/{id}/representatives/{representativeId}` | `REPRESENTATIVE_WRITE` |
+| DELETE | `/api/v1/students/{id}/representatives/{representativeId}` | `REPRESENTATIVE_WRITE` |
+
+Las observaciones (`notes`) solo se devuelven con `STUDENT_NOTES_READ`; en caso contrario
+llegan como `null` con `notesRestricted = true`.
+
+### Representantes
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/representatives?search=&page=&size=` | `REPRESENTATIVE_READ` |
+| POST | `/api/v1/representatives` | `REPRESENTATIVE_WRITE` |
+| GET | `/api/v1/representatives/{id}` | `REPRESENTATIVE_READ` |
+| PUT | `/api/v1/representatives/{id}` | `REPRESENTATIVE_WRITE` |
+| GET | `/api/v1/representatives/{id}/students` | `REPRESENTATIVE_READ` |
+
+### Catálogo
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET/POST | `/api/v1/catalog/levels` | `CATALOG_READ` / `CATALOG_WRITE` |
+| PUT | `/api/v1/catalog/levels/{id}` | `CATALOG_WRITE` |
+| GET/POST | `/api/v1/catalog/periods` | `CATALOG_READ` / `CATALOG_WRITE` |
+| PUT | `/api/v1/catalog/periods/{id}` | `CATALOG_WRITE` |
+| GET/POST | `/api/v1/catalog/services` | `CATALOG_READ` / `CATALOG_WRITE` |
+| PUT | `/api/v1/catalog/services/{id}` | `CATALOG_WRITE` |
+| GET/POST | `/api/v1/catalog/plans` | `CATALOG_READ` / `CATALOG_WRITE` |
+| PUT | `/api/v1/catalog/plans/{id}` | `CATALOG_WRITE` |
+| GET/POST | `/api/v1/catalog/rates` | `CATALOG_READ` / `CATALOG_WRITE` |
+| PUT | `/api/v1/catalog/rates/{id}` | `CATALOG_WRITE` |
+
+### Matrículas
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/enrollments?status=&studentId=&academicPeriodId=&page=&size=` | `ENROLLMENT_READ` |
+| POST | `/api/v1/enrollments` | `ENROLLMENT_WRITE` |
+| GET | `/api/v1/enrollments/{id}` | `ENROLLMENT_READ` |
+| PUT | `/api/v1/enrollments/{id}` | `ENROLLMENT_WRITE` (solo `DRAFT`) |
+| POST | `/api/v1/enrollments/{id}/confirm` | `ENROLLMENT_WRITE` |
+| POST | `/api/v1/enrollments/{id}/cancel` | `ENROLLMENT_WRITE` |
+| POST | `/api/v1/enrollments/{id}/complete` | `ENROLLMENT_WRITE` |
+| GET | `/api/v1/enrollments/{id}/history` | `ENROLLMENT_READ` |
+
 ## Usuarios de desarrollo
 
 Se crean solo con el perfil `dev` y `APP_SEED_ENABLED=true`:
@@ -99,13 +161,19 @@ No usar estos valores en producción. Cambiarlos o desactivar `APP_SEED_ENABLED`
 ```text
 src/main/java/com/akira/educacion
 ├── audit/           # eventos de auditoría
+├── catalog/         # niveles, períodos, servicios, planes y tarifas
 ├── common/          # errores, paginación, seguridad y configuración
 ├── config/          # datos de arranque de desarrollo
+├── enrollment/      # matrículas, servicios adicionales e historial
 ├── identity/        # usuarios, roles, permisos, login
-└── institution/     # instituciones y su configuración
+├── institution/     # instituciones, configuración y alcance institucional
+├── representatives/ # representantes
+└── students/        # estudiantes y vínculos con representantes
 src/main/resources/db/migration
 ├── V1__initial_schema.sql
-└── V2__seed_roles_and_permissions.sql
+├── V2__seed_roles_and_permissions.sql
+├── V3__school_management_schema.sql
+└── V4__phase2_permissions.sql
 ```
 
 ## Notas de seguridad

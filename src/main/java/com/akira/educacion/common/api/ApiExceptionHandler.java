@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -77,6 +78,12 @@ public class ApiExceptionHandler {
     ProblemDetail handleUnreadable(HttpMessageNotReadableException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Petición inválida", "INVALID_BODY",
                 "El cuerpo de la petición no tiene el formato esperado.");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Parámetro inválido", "INVALID_PARAMETER",
+                "El valor del parámetro '" + ex.getName() + "' no es válido.");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

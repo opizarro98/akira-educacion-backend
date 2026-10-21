@@ -113,6 +113,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("admin1@test.local"))
-                .andExpect(jsonPath("$.permissions[0]").value("INSTITUTION_READ"));
+                .andExpect(jsonPath("$.permissions",
+                        org.hamcrest.Matchers.hasItem("INSTITUTION_READ")));
     }
 }
