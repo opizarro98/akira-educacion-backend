@@ -1,6 +1,6 @@
 # Akira Educación — backend
 
-API REST del sistema de gestión escolar multiinstitución. **Fase 1**: fundamentos, autenticación JWT, instituciones, usuarios, roles, permisos y auditoría.
+API REST del sistema de gestión escolar multiinstitución. **Fase 1**: fundamentos, autenticación JWT, instituciones, usuarios, roles, permisos y auditoría. **Fase 2**: gestión escolar, catálogo y matrículas. **Fase 3A**: obligaciones de cobro y conceptos financieros. **Fase 3B**: pagos, aplicaciones y recibos internos.
 
 - Java 25, Spring Boot 4.1.1, Spring Framework 7, Hibernate 7.
 - PostgreSQL + Flyway (`ddl-auto=validate`).
@@ -64,7 +64,7 @@ env DB_URL=jdbc:postgresql://localhost:5432/<base_local> \
     ./mvnw -B clean test
 ```
 
-Resultado verificado: **49 pruebas, 0 fallos** (Fase 1 + Fase 2).
+Resultado verificado: **77 pruebas, 0 fallos** (Fase 1 + Fase 2 + Fase 3A + Fase 3B).
 
 ## Endpoints de la Fase 1
 
@@ -145,6 +145,97 @@ llegan como `null` con `notesRestricted = true`.
 | POST | `/api/v1/enrollments/{id}/complete` | `ENROLLMENT_WRITE` |
 | GET | `/api/v1/enrollments/{id}/history` | `ENROLLMENT_READ` |
 
+## Endpoints de la Fase 3A
+
+Solo obligaciones de cobro y conceptos financieros. **No** se registran pagos ni recibos.
+Los importes usan `NUMERIC(12,2)` y `BigDecimal`; el detalle conserva la tasa de IVA y el
+precio acordado como instantánea histórica.
+
+### Obligaciones de cobro
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/billing/charges?status=&studentId=&issueFrom=&issueTo=&dueFrom=&dueTo=&page=&size=` | `CHARGE_READ` |
+| GET | `/api/v1/billing/charges/{id}` | `CHARGE_READ` |
+| GET | `/api/v1/billing/charges/{id}/balance` | `CHARGE_READ` |
+| GET | `/api/v1/billing/charges/{id}/history` | `CHARGE_READ` |
+| POST | `/api/v1/billing/charges` | `CHARGE_WRITE` |
+| POST | `/api/v1/billing/charges/from-enrollment/{enrollmentId}` | `CHARGE_WRITE` |
+| POST | `/api/v1/billing/charges/generate-monthly` | `CHARGE_WRITE` |
+| POST | `/api/v1/billing/charges/{id}/void` | `CHARGE_WRITE` |
+
+- Estados: `PENDING`, `PARTIAL`, `PAID`, `VOID`. En esta fase solo se emiten `PENDING` y se anulan como `VOID`.
+- Una obligación no se edita: solo se crea, se consulta o se anula con motivo.
+- `from-enrollment` exige una matrícula `CONFIRMED`, usa el precio acordado y la tasa de IVA congelada en la matrícula.
+- La generación es idempotente: el cobro inicial usa `ENROLLMENT_INITIAL:{enrollmentId}` y la generación
+  mensual `MONTHLY:{studentId}:{conceptId}:{YYYY-MM}`. Las obligaciones manuales aceptan `idempotencyKey`.
+- `generate-monthly` es siempre una acción explícita del usuario; no hay procesos programados.
+
+### Conceptos y configuración
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/billing/concepts` | `BILLING_CONCEPT_READ` |
+| POST | `/api/v1/billing/concepts` | `BILLING_CONCEPT_WRITE` |
+| PUT | `/api/v1/billing/concepts/{id}` | `BILLING_CONCEPT_WRITE` |
+| GET | `/api/v1/billing/settings` | `BILLING_SETTINGS_READ` |
+| PUT | `/api/v1/billing/settings` | `BILLING_SETTINGS_WRITE` |
+
+La configuración define frecuencia (`MONTHLY`, `BIMONTHLY`, `QUARTERLY`, `ANNUAL`, `ONE_TIME`),
+día de emisión (1-28) y días hasta el vencimiento (0-120).
+
+## Endpoints de la Fase 3B
+
+Pagos, aplicaciones y recibos internos. No se implementan egresos, caja ni reportes avanzados.
+
+### Pagos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/billing/payments?status=&studentId=&method=&receivedFrom=&receivedTo=&page=&size=` | `PAYMENT_READ` |
+| GET | `/api/v1/billing/payments/{id}` | `PAYMENT_READ` |
+| GET | `/api/v1/billing/payments/{id}/history` | `PAYMENT_READ` |
+| POST | `/api/v1/billing/payments` | `PAYMENT_WRITE` |
+| POST | `/api/v1/billing/payments/{id}/confirm` | `PAYMENT_VERIFY` |
+| POST | `/api/v1/billing/payments/{id}/void` | `PAYMENT_VOID` |
+| POST | `/api/v1/billing/payments/{id}/allocations` | `PAYMENT_APPLY` |
+| POST | `/api/v1/billing/payments/{id}/allocations/{allocationId}/reverse` | `PAYMENT_APPLY` |
+
+- Estados: `PENDING_VERIFICATION`, `CONFIRMED`, `VOID`.
+- Medios: `CASH`, `BANK_TRANSFER`.
+- El efectivo se confirma de inmediato solo si el usuario tiene `PAYMENT_VERIFY`; en caso contrario queda pendiente.
+- Las transferencias quedan pendientes y requieren referencia bancaria.
+- Un pago pendiente o anulado no cuenta como dinero disponible ni puede aplicarse.
+- La confirmación emite un recibo interno con numeración secuencial por institución.
+- Anular un pago exige que sus aplicaciones estén revertidas y conserva historial y auditoría.
+
+### Aplicaciones
+
+```json
+{
+  "idempotencyKey": "operacion-uuid",
+  "allocations": [
+    { "chargeId": "uuid", "amount": 100.00 },
+    { "chargeId": "uuid", "amount": 75.00 }
+  ]
+}
+```
+
+- El pago y las obligaciones se bloquean con bloqueo pesimista.
+- La suma de aplicaciones no supera el importe disponible del pago ni el saldo de cada obligación.
+- Solo se aplican pagos `CONFIRMED` a obligaciones no anuladas del mismo estudiante e institución.
+- La operación es transaccional: cualquier fallo revierte todo el lote.
+- Reintentar con la misma `idempotencyKey` devuelve el pago sin duplicar aplicaciones.
+- Revertir una aplicación restaura el saldo y deja motivo, actor y fecha.
+
+### Recibos internos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/billing/receipts?paymentId=&studentId=&page=&size=` | `RECEIPT_READ` |
+| GET | `/api/v1/billing/receipts/{id}` | `RECEIPT_READ` |
+| GET | `/api/v1/billing/receipts/by-payment/{paymentId}` | `RECEIPT_READ` |
+
 ## Usuarios de desarrollo
 
 Se crean solo con el perfil `dev` y `APP_SEED_ENABLED=true`:
@@ -161,6 +252,7 @@ No usar estos valores en producción. Cambiarlos o desactivar `APP_SEED_ENABLED`
 ```text
 src/main/java/com/akira/educacion
 ├── audit/           # eventos de auditoría
+├── billing/         # obligaciones, pagos, aplicaciones, recibos y configuración
 ├── catalog/         # niveles, períodos, servicios, planes y tarifas
 ├── common/          # errores, paginación, seguridad y configuración
 ├── config/          # datos de arranque de desarrollo
@@ -173,7 +265,11 @@ src/main/resources/db/migration
 ├── V1__initial_schema.sql
 ├── V2__seed_roles_and_permissions.sql
 ├── V3__school_management_schema.sql
-└── V4__phase2_permissions.sql
+├── V4__phase2_permissions.sql
+├── V5__billing_schema.sql
+├── V6__phase3_permissions.sql
+├── V7__payments_schema.sql
+└── V8__phase3b_permissions.sql
 ```
 
 ## Notas de seguridad
