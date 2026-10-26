@@ -35,6 +35,20 @@ public final class PermissionCodes {
     public static final String PAYMENT_VOID = "PAYMENT_VOID";
     public static final String RECEIPT_READ = "RECEIPT_READ";
 
+    public static final String EXPENSE_CATEGORY_READ = "EXPENSE_CATEGORY_READ";
+    public static final String EXPENSE_CATEGORY_WRITE = "EXPENSE_CATEGORY_WRITE";
+    public static final String EXPENSE_READ = "EXPENSE_READ";
+    public static final String EXPENSE_WRITE = "EXPENSE_WRITE";
+    public static final String CASH_MOVEMENT_READ = "CASH_MOVEMENT_READ";
+    public static final String FINANCE_REPORT_READ = "FINANCE_REPORT_READ";
+
+    public static final String COMMUNICATION_READ = "COMMUNICATION_READ";
+    public static final String COMMUNICATION_WRITE = "COMMUNICATION_WRITE";
+    public static final String MESSAGE_TEMPLATE_READ = "MESSAGE_TEMPLATE_READ";
+    public static final String MESSAGE_TEMPLATE_WRITE = "MESSAGE_TEMPLATE_WRITE";
+    public static final String STUDENT_IMPORT_READ = "STUDENT_IMPORT_READ";
+    public static final String STUDENT_IMPORT_WRITE = "STUDENT_IMPORT_WRITE";
+
     private PermissionCodes() {
     }
 }

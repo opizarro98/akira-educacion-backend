@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -84,6 +86,18 @@ public class ApiExceptionHandler {
     ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Parámetro inválido", "INVALID_PARAMETER",
                 "El valor del parámetro '" + ex.getName() + "' no es válido.");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ProblemDetail handleMaxUploadSize(MaxUploadSizeExceededException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Archivo demasiado grande", "FILE_TOO_LARGE",
+                "El archivo supera el tamaño máximo permitido (5 MB).");
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    ProblemDetail handleMissingPart(MissingServletRequestPartException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Archivo requerido", "FILE_REQUIRED",
+                "Debe adjuntar el archivo Excel en el campo 'file'.");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

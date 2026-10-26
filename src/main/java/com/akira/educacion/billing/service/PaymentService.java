@@ -16,7 +16,6 @@ import com.akira.educacion.billing.domain.PaymentAllocation;
 import com.akira.educacion.billing.domain.PaymentHistory;
 import com.akira.educacion.billing.domain.PaymentMethod;
 import com.akira.educacion.billing.domain.PaymentStatus;
-import com.akira.educacion.billing.domain.Receipt;
 import com.akira.educacion.billing.repository.ChargeRepository;
 import com.akira.educacion.billing.repository.PaymentAllocationRepository;
 import com.akira.educacion.billing.repository.PaymentHistoryRepository;
@@ -27,6 +26,7 @@ import com.akira.educacion.common.api.ConflictException;
 import com.akira.educacion.common.api.NotFoundException;
 import com.akira.educacion.common.api.PageResponse;
 import com.akira.educacion.common.security.CurrentUser;
+import com.akira.educacion.finance.service.CashMovementService;
 import com.akira.educacion.identity.domain.PermissionCodes;
 import com.akira.educacion.institution.domain.Institution;
 import com.akira.educacion.students.domain.Student;
@@ -68,6 +68,7 @@ public class PaymentService {
     private final ChargeRepository chargeRepository;
     private final StudentService studentService;
     private final ReceiptService receiptService;
+    private final CashMovementService cashMovementService;
     private final CurrentUser currentUser;
     private final AuditService auditService;
 
@@ -169,6 +170,7 @@ public class PaymentService {
 
         if (cashConfirmed) {
             receiptService.issue(institution, saved, actorEmail());
+            cashMovementService.recordPaymentIn(saved);
             recordHistory(saved, "CONFIRMED", "cash payment confirmed at registration", null);
             auditService.record("PAYMENT_CONFIRMED", "Payment", saved.getId(), institutionId,
                     "method=CASH; amount=" + saved.getAmount());
@@ -195,12 +197,23 @@ public class PaymentService {
         Payment saved = paymentRepository.save(payment);
 
         receiptService.issue(payment.getInstitution(), saved, actorEmail());
+        cashMovementService.recordPaymentIn(saved);
         recordHistory(saved, "CONFIRMED", "payment verified", null);
         auditService.record("PAYMENT_CONFIRMED", "Payment", saved.getId(), institutionId,
                 "amount=" + saved.getAmount());
         return toDetail(saved);
     }
 
+    /**
+     * Anula un pago confirmado o pendiente.
+     *
+     * <p>
+     * La anulación es atómica: revierte automáticamente todas las aplicaciones
+     * vigentes, restaura el saldo de cada obligación, anula el recibo y, si el
+     * pago estaba confirmado, genera la reversión de caja correspondiente. De
+     * este modo no es posible dejar un pago anulado con dinero aplicado ni un
+     * movimiento de caja huérfano.
+     */
     @Transactional
     public PaymentResponse voidPayment(UUID institutionId, UUID id, String reason) {
         Payment payment = paymentRepository.lockByIdAndInstitutionId(id, institutionId)
@@ -208,22 +221,74 @@ public class PaymentService {
         if (payment.getStatus() == PaymentStatus.VOID) {
             throw new ConflictException("El pago ya está anulado");
         }
-        if (payment.getAppliedAmount().signum() > 0) {
-            throw new ConflictException("Debe revertir las aplicaciones antes de anular el pago");
-        }
+
+        boolean wasConfirmed = payment.getStatus() == PaymentStatus.CONFIRMED;
+        String trimmedReason = reason.trim();
+        int reversedAllocations = reverseActiveAllocations(institutionId, payment, trimmedReason);
 
         payment.setStatus(PaymentStatus.VOID);
-        payment.setVoidReason(reason.trim());
+        payment.setVoidReason(trimmedReason);
         payment.setVoidedAt(Instant.now());
         payment.setVoidedBy(actorEmail());
         Payment saved = paymentRepository.save(payment);
 
         receiptRepository.findByInstitutionIdAndPaymentId(institutionId, id)
-                .ifPresent(receipt -> receiptService.voidReceipt(receipt, reason.trim()));
+                .ifPresent(receipt -> receiptService.voidReceipt(receipt, trimmedReason));
 
-        recordHistory(saved, "VOIDED", null, reason.trim());
-        auditService.record("PAYMENT_VOIDED", "Payment", saved.getId(), institutionId, "reason=" + reason.trim());
+        if (wasConfirmed) {
+            cashMovementService.recordPaymentVoidReversal(saved, trimmedReason);
+        }
+
+        String details = reversedAllocations == 0 ? null
+                : "reversedAllocations=" + reversedAllocations;
+        recordHistory(saved, "VOIDED", details, trimmedReason);
+        auditService.record("PAYMENT_VOIDED", "Payment", saved.getId(), institutionId,
+                "wasConfirmed=" + wasConfirmed + "; reversedAllocations=" + reversedAllocations
+                        + "; reason=" + trimmedReason);
         return toDetail(saved);
+    }
+
+    /**
+     * Revierte las aplicaciones vigentes del pago dentro de la anulación.
+     *
+     * @return número de aplicaciones revertidas
+     */
+    private int reverseActiveAllocations(UUID institutionId, Payment payment, String reason) {
+        List<PaymentAllocation> active = allocationRepository
+                .findByInstitutionIdAndPaymentIdOrderByCreatedAtAsc(institutionId, payment.getId()).stream()
+                .filter(allocation -> !allocation.isReversed())
+                .toList();
+        if (active.isEmpty()) {
+            return 0;
+        }
+
+        BigDecimal reversedTotal = BigDecimal.ZERO;
+        for (PaymentAllocation allocation : active) {
+            Charge charge = chargeRepository.lockByIdAndInstitutionId(allocation.getCharge().getId(), institutionId)
+                    .orElseThrow(() -> new NotFoundException("La obligación no existe en la institución"));
+            if (charge.getPaidAmount().compareTo(allocation.getAmount()) < 0) {
+                throw new ConflictException("El saldo pagado de la obligación es inconsistente");
+            }
+
+            allocation.setReversed(true);
+            allocation.setReversedAt(Instant.now());
+            allocation.setReversedBy(actorEmail());
+            allocation.setReversalReason(reason);
+            allocationRepository.save(allocation);
+
+            charge.setPaidAmount(money(charge.getPaidAmount().subtract(allocation.getAmount())));
+            refreshChargeStatus(charge);
+            chargeRepository.save(charge);
+            reversedTotal = reversedTotal.add(allocation.getAmount());
+        }
+
+        payment.setAppliedAmount(money(payment.getAppliedAmount().subtract(reversedTotal)));
+        paymentRepository.save(payment);
+        recordHistory(payment, "ALLOCATIONS_REVERSED",
+                "count=" + active.size() + "; total=" + money(reversedTotal), reason);
+        auditService.record("PAYMENT_ALLOCATIONS_REVERSED", "Payment", payment.getId(), institutionId,
+                "count=" + active.size() + "; total=" + money(reversedTotal) + "; reason=" + reason);
+        return active.size();
     }
 
     // ------------------------------------------------------------------

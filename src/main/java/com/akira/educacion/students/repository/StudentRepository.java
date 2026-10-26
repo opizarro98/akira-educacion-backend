@@ -12,29 +12,34 @@ import java.util.UUID;
 
 public interface StudentRepository extends JpaRepository<Student, UUID> {
 
-    Optional<Student> findByIdAndInstitutionId(UUID id, UUID institutionId);
+        Optional<Student> findByIdAndInstitutionId(UUID id, UUID institutionId);
 
-    boolean existsByInstitutionIdAndDocumentNumberIgnoreCase(UUID institutionId, String documentNumber);
+        boolean existsByInstitutionIdAndDocumentNumberIgnoreCase(UUID institutionId, String documentNumber);
 
-    boolean existsByInstitutionIdAndDocumentNumberIgnoreCaseAndIdNot(UUID institutionId, String documentNumber,
-            UUID id);
+        boolean existsByInstitutionIdAndDocumentNumberIgnoreCaseAndIdNot(UUID institutionId, String documentNumber,
+                        UUID id);
 
-    /**
-     * Búsqueda con patrones ya preparados por el servicio ({@code %valor%} o
-     * {@code %} para "sin filtro"). Se evitan parámetros opcionales comparados
-     * con {@code null} para que PostgreSQL no tenga que inferir el tipo de un
-     * parámetro sin contexto.
-     */
-    @Query("""
-            select s from Student s
-            where s.institution.id = :institutionId
-              and cast(s.status as string) like :statusPattern
-              and (lower(s.firstName) like :searchPattern
-                   or lower(s.lastName) like :searchPattern
-                   or lower(coalesce(s.documentNumber, '')) like :searchPattern)
-            """)
-    Page<Student> search(@Param("institutionId") UUID institutionId,
-            @Param("statusPattern") String statusPattern,
-            @Param("searchPattern") String searchPattern,
-            Pageable pageable);
+        Optional<Student> findByInstitutionIdAndDocumentNumberIgnoreCase(UUID institutionId, String documentNumber);
+
+        Optional<Student> findFirstByInstitutionIdAndFirstNameIgnoreCaseAndLastNameIgnoreCaseAndBirthDate(
+                        UUID institutionId, String firstName, String lastName, java.time.LocalDate birthDate);
+
+        /**
+         * Búsqueda con patrones ya preparados por el servicio ({@code %valor%} o
+         * {@code %} para "sin filtro"). Se evitan parámetros opcionales comparados
+         * con {@code null} para que PostgreSQL no tenga que inferir el tipo de un
+         * parámetro sin contexto.
+         */
+        @Query("""
+                        select s from Student s
+                        where s.institution.id = :institutionId
+                          and cast(s.status as string) like :statusPattern
+                          and (lower(s.firstName) like :searchPattern
+                               or lower(s.lastName) like :searchPattern
+                               or lower(coalesce(s.documentNumber, '')) like :searchPattern)
+                        """)
+        Page<Student> search(@Param("institutionId") UUID institutionId,
+                        @Param("statusPattern") String statusPattern,
+                        @Param("searchPattern") String searchPattern,
+                        Pageable pageable);
 }

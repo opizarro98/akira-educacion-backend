@@ -1,6 +1,6 @@
 # Akira Educación — backend
 
-API REST del sistema de gestión escolar multiinstitución. **Fase 1**: fundamentos, autenticación JWT, instituciones, usuarios, roles, permisos y auditoría. **Fase 2**: gestión escolar, catálogo y matrículas. **Fase 3A**: obligaciones de cobro y conceptos financieros. **Fase 3B**: pagos, aplicaciones y recibos internos.
+API REST del sistema de gestión escolar multiinstitución. **Fase 1**: fundamentos, autenticación JWT, instituciones, usuarios, roles, permisos y auditoría. **Fase 2**: gestión escolar, catálogo y matrículas. **Fase 3A**: obligaciones de cobro y conceptos financieros. **Fase 3B**: pagos, aplicaciones y recibos internos. **Fase 4**: egresos, caja y reportes financieros. **Fase 5A**: comunicaciones asistidas e importación de estudiantes desde Excel.
 
 - Java 25, Spring Boot 4.1.1, Spring Framework 7, Hibernate 7.
 - PostgreSQL + Flyway (`ddl-auto=validate`).
@@ -64,7 +64,7 @@ env DB_URL=jdbc:postgresql://localhost:5432/<base_local> \
     ./mvnw -B clean test
 ```
 
-Resultado verificado: **77 pruebas, 0 fallos** (Fase 1 + Fase 2 + Fase 3A + Fase 3B).
+Resultado verificado: **114 pruebas, 0 fallos** (Fase 1 + Fase 2 + Fase 3A + Fase 3B + Fase 4 + Fase 5A).
 
 ## Endpoints de la Fase 1
 
@@ -207,7 +207,8 @@ Pagos, aplicaciones y recibos internos. No se implementan egresos, caja ni repor
 - Las transferencias quedan pendientes y requieren referencia bancaria.
 - Un pago pendiente o anulado no cuenta como dinero disponible ni puede aplicarse.
 - La confirmación emite un recibo interno con numeración secuencial por institución.
-- Anular un pago exige que sus aplicaciones estén revertidas y conserva historial y auditoría.
+- Anular un pago revierte automáticamente sus aplicaciones vigentes, restaura el saldo de las
+  obligaciones, anula el recibo y conserva historial y auditoría. La operación es atómica.
 
 ### Aplicaciones
 
@@ -236,6 +237,115 @@ Pagos, aplicaciones y recibos internos. No se implementan egresos, caja ni repor
 | GET | `/api/v1/billing/receipts/{id}` | `RECEIPT_READ` |
 | GET | `/api/v1/billing/receipts/by-payment/{paymentId}` | `RECEIPT_READ` |
 
+## Endpoints de la Fase 4
+
+Egresos, movimientos de caja y reportes financieros. Los movimientos de caja son derivados:
+no pueden crearse ni editarse desde la API. Cada pago o egreso confirmado genera como máximo
+un movimiento por tipo y origen, protegido por una clave única en base de datos.
+
+### Categorías de egreso
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/finance/expense-categories?active=` | `EXPENSE_CATEGORY_READ` |
+| GET | `/api/v1/finance/expense-categories/{id}` | `EXPENSE_CATEGORY_READ` |
+| POST | `/api/v1/finance/expense-categories` | `EXPENSE_CATEGORY_WRITE` |
+| PUT | `/api/v1/finance/expense-categories/{id}` | `EXPENSE_CATEGORY_WRITE` |
+
+### Egresos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/finance/expenses?status=&categoryId=&from=&to=&page=&size=` | `EXPENSE_READ` |
+| GET | `/api/v1/finance/expenses/{id}` | `EXPENSE_READ` |
+| GET | `/api/v1/finance/expenses/{id}/history` | `EXPENSE_READ` |
+| POST | `/api/v1/finance/expenses` | `EXPENSE_WRITE` |
+| PUT | `/api/v1/finance/expenses/{id}` | `EXPENSE_WRITE` (solo `DRAFT`) |
+| POST | `/api/v1/finance/expenses/{id}/confirm` | `EXPENSE_WRITE` |
+| POST | `/api/v1/finance/expenses/{id}/void` | `EXPENSE_WRITE` |
+
+- Estados: `DRAFT`, `CONFIRMED`, `VOID`.
+- Un `DRAFT` es editable y no afecta la caja.
+- Confirmar genera una salida de caja (`EXPENSE_OUT`) y bloquea la edición.
+- Anular un egreso confirmado genera `EXPENSE_VOID_REVERSAL`; anular un borrador no genera movimiento.
+- El historial es append-only y la anulación exige motivo.
+
+### Movimientos de caja
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/finance/cash-movements?type=&from=&to=&page=&size=` | `CASH_MOVEMENT_READ` |
+
+Tipos: `PAYMENT_IN`, `EXPENSE_OUT`, `PAYMENT_VOID_REVERSAL`, `EXPENSE_VOID_REVERSAL`.
+El rango de fechas se interpreta en la zona horaria de la institución con límites
+`[inicio del día, inicio del día siguiente)`.
+
+### Reportes y dashboard
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/finance/reports/confirmed-payments?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/pending-payments?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/voided-payments?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/outstanding?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/expenses?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/cash-flow?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/reports/cash-summary?from=&to=` | `FINANCE_REPORT_READ` |
+| GET | `/api/v1/finance/dashboard?from=&to=` | `FINANCE_REPORT_READ` |
+
+Sin fechas se usa el mes en curso de la institución. Cada reporte incluye en su cabecera la
+institución, el período, la zona horaria, la moneda, si incluye anulaciones y los importes
+devengado, cobrado y su diferencia. Los reportes globales de `PLATFORM_ADMIN` quedan auditados
+con `PLATFORM_GLOBAL_ACCESS`; cada consulta registra además `FINANCE_REPORT_VIEWED`.
+
+## Endpoints de la Fase 5A
+
+### Comunicaciones asistidas
+
+No hay integración con WhatsApp Business API. El backend genera un enlace `wa.me` y registra
+la comunicación, pero **no puede confirmar el envío ni la entrega**. El estado `OPENED` solo
+indica que el usuario abrió el enlace.
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/communications/templates?active=` | `MESSAGE_TEMPLATE_READ` |
+| GET | `/api/v1/communications/templates/{id}` | `MESSAGE_TEMPLATE_READ` |
+| POST | `/api/v1/communications/templates` | `MESSAGE_TEMPLATE_WRITE` |
+| PUT | `/api/v1/communications/templates/{id}` | `MESSAGE_TEMPLATE_WRITE` |
+| GET | `/api/v1/communications?status=&studentId=&page=&size=` | `COMMUNICATION_READ` |
+| GET | `/api/v1/communications/{id}` | `COMMUNICATION_READ` |
+| POST | `/api/v1/communications/preview` | `COMMUNICATION_WRITE` |
+| POST | `/api/v1/communications` | `COMMUNICATION_WRITE` |
+| POST | `/api/v1/communications/{id}/opened` | `COMMUNICATION_WRITE` |
+| POST | `/api/v1/communications/{id}/failed` | `COMMUNICATION_WRITE` |
+
+- Estados: `DRAFT`, `READY`, `OPENED`, `FAILED`.
+- Marcadores: `{{estudiante}}`, `{{representante}}`, `{{institucion}}`, `{{fecha}}` y
+  `{{detalle_financiero}}`. Los marcadores desconocidos se rechazan.
+- El representante debe estar vinculado al estudiante, autorizado para comunicaciones y tener
+  teléfono válido. Los teléfonos locales ecuatorianos se normalizan a `593...`.
+- La información financiera solo se incluye si el usuario la escribe y confirma; la vista previa
+  devuelve el mensaje exacto y el enlace codificado en UTF-8.
+
+### Importación de estudiantes
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| POST | `/api/v1/imports/students/preview` (multipart, campo `file`) | `STUDENT_IMPORT_WRITE` |
+| POST | `/api/v1/imports/students/{id}/confirm` | `STUDENT_IMPORT_WRITE` |
+| GET | `/api/v1/imports/students?page=&size=` | `STUDENT_IMPORT_READ` |
+| GET | `/api/v1/imports/students/{id}` | `STUDENT_IMPORT_READ` |
+
+- Solo se aceptan archivos `.xlsx` de hasta 5 MB y 2 000 filas.
+- La vista previa valida y guarda el lote, pero **no crea estudiantes**. La institución nunca
+  se toma del archivo.
+- Columnas obligatorias: `Nombres`, `Apellidos`, `Fecha de ingreso`.
+- Duplicados: identificación, o nombre+apellido+fecha de nacimiento cuando no hay identificación.
+  También se detectan duplicados dentro del archivo y coincidencias con estudiantes existentes.
+- La confirmación importa solo filas válidas, es idempotente al reintentar el mismo lote y
+  puede actualizar coincidencias existentes solo con `allowUpdateExisting=true`.
+- El archivo se procesa en memoria; solo se guardan nombre, tamaño y hash SHA-256 para auditoría.
+
 ## Usuarios de desarrollo
 
 Se crean solo con el perfil `dev` y `APP_SEED_ENABLED=true`:
@@ -255,11 +365,14 @@ src/main/java/com/akira/educacion
 ├── billing/         # obligaciones, pagos, aplicaciones, recibos y configuración
 ├── catalog/         # niveles, períodos, servicios, planes y tarifas
 ├── common/          # errores, paginación, seguridad y configuración
+├── communication/   # plantillas, comunicaciones y enlaces wa.me
 ├── config/          # datos de arranque de desarrollo
 ├── enrollment/      # matrículas, servicios adicionales e historial
+├── finance/         # egresos, categorías, caja, reportes y dashboard
 ├── identity/        # usuarios, roles, permisos, login
 ├── institution/     # instituciones, configuración y alcance institucional
 ├── representatives/ # representantes
+├── studentimport/   # carga, validación e importación de estudiantes
 └── students/        # estudiantes y vínculos con representantes
 src/main/resources/db/migration
 ├── V1__initial_schema.sql
@@ -269,7 +382,11 @@ src/main/resources/db/migration
 ├── V5__billing_schema.sql
 ├── V6__phase3_permissions.sql
 ├── V7__payments_schema.sql
-└── V8__phase3b_permissions.sql
+├── V8__phase3b_permissions.sql
+├── V9__finance_schema.sql
+├── V10__phase4_permissions.sql
+├── V11__communications_and_student_import_schema.sql
+└── V12__phase5a_permissions.sql
 ```
 
 ## Notas de seguridad

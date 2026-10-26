@@ -97,6 +97,13 @@
 			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
 
+		<!-- Lectura de archivos Excel (.xlsx) para la importación de estudiantes -->
+		<dependency>
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml</artifactId>
+			<version>5.4.1</version>
+		</dependency>
+
 		<!-- Bean Validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

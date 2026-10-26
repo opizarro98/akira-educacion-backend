@@ -1,6 +1,8 @@
 package com.akira.educacion.config;
 
 import com.akira.educacion.audit.AuditService;
+import com.akira.educacion.communication.domain.MessageTemplate;
+import com.akira.educacion.communication.repository.MessageTemplateRepository;
 import com.akira.educacion.identity.domain.RoleCodes;
 import com.akira.educacion.identity.service.UserService;
 import com.akira.educacion.institution.domain.Institution;
@@ -30,6 +32,7 @@ public class DevDataSeeder implements ApplicationRunner {
 
     private final InstitutionRepository institutionRepository;
     private final UserService userService;
+    private final MessageTemplateRepository messageTemplateRepository;
     private final AuditService auditService;
 
     @Value("${app.seed.platform-admin-email:}")
@@ -66,8 +69,7 @@ public class DevDataSeeder implements ApplicationRunner {
     }
 
     private void seedDemoInstitution() {
-        if (!demoEnabled || isBlank(demoAdminEmail) || isBlank(demoAdminPassword)
-                || userService.existsByEmail(demoAdminEmail)) {
+        if (!demoEnabled || isBlank(demoAdminEmail) || isBlank(demoAdminPassword)) {
             return;
         }
 
@@ -76,8 +78,58 @@ public class DevDataSeeder implements ApplicationRunner {
                 .findFirst()
                 .orElseGet(this::createDemoInstitution);
 
-        userService.create(institution, demoAdminEmail, "Administradora demo", demoAdminPassword,
-                Set.of(RoleCodes.INSTITUTION_ADMIN));
+        seedTemplates(institution);
+
+        if (!userService.existsByEmail(demoAdminEmail)) {
+            userService.create(institution, demoAdminEmail, "Administradora demo", demoAdminPassword,
+                    Set.of(RoleCodes.INSTITUTION_ADMIN));
+        }
+    }
+
+    /**
+     * Plantillas de ejemplo. Solo se crean si la institución demo aún no tiene
+     * ninguna, de modo que el arranque sea idempotente.
+     */
+    private void seedTemplates(Institution institution) {
+        if (!messageTemplateRepository.search(institution.getId(), false, false).isEmpty()) {
+            return;
+        }
+        createTemplate(institution, "PAGO", "Recordatorio de pago", """
+                Estimado/a {{representante}}:
+
+                Le recordamos que {{estudiante}} tiene una obligación pendiente en {{institucion}}.
+
+                {{detalle_financiero}}
+
+                Fecha: {{fecha}}
+                """);
+        createTemplate(institution, "CITACION", "Citación general", """
+                Estimado/a {{representante}}:
+
+                Nos comunicamos de {{institucion}} para conversar sobre {{estudiante}}.
+                Por favor, responda a este mensaje para coordinar una reunión.
+
+                Fecha: {{fecha}}
+                """);
+        createTemplate(institution, "BIENVENIDA", "Bienvenida", """
+                Hola {{representante}}:
+
+                Bienvenido/a a {{institucion}}. {{estudiante}} ya forma parte de nuestra comunidad educativa.
+
+                Fecha: {{fecha}}
+                """);
+    }
+
+    private void createTemplate(Institution institution, String code, String name, String body) {
+        MessageTemplate template = new MessageTemplate();
+        template.setInstitution(institution);
+        template.setCode(code);
+        template.setName(name);
+        template.setBody(body.stripIndent().trim());
+        template.setActive(true);
+        MessageTemplate saved = messageTemplateRepository.save(template);
+        auditService.record("MESSAGE_TEMPLATE_CREATED", "MessageTemplate", saved.getId(), institution.getId(),
+                "origin=dev-seed; name=" + name);
     }
 
     private Institution createDemoInstitution() {
