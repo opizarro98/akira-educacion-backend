@@ -67,7 +67,7 @@ public class ExpenseController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('EXPENSE_WRITE')")
+    @PreAuthorize("hasAuthority('EXPENSE_CREATE')")
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Registra un egreso en borrador")
     public ExpenseResponse create(@RequestParam(required = false) UUID institutionId,
@@ -76,7 +76,7 @@ public class ExpenseController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('EXPENSE_WRITE')")
+    @PreAuthorize("hasAuthority('EXPENSE_UPDATE')")
     @Operation(summary = "Edita un egreso en borrador")
     public ExpenseResponse update(@PathVariable UUID id,
             @RequestParam(required = false) UUID institutionId,
@@ -85,7 +85,7 @@ public class ExpenseController {
     }
 
     @PostMapping("/{id}/confirm")
-    @PreAuthorize("hasAuthority('EXPENSE_WRITE')")
+    @PreAuthorize("hasAuthority('EXPENSE_CONFIRM')")
     @Operation(summary = "Confirma un egreso y genera la salida de caja")
     public ExpenseResponse confirm(@PathVariable UUID id,
             @RequestParam(required = false) UUID institutionId) {
@@ -93,7 +93,7 @@ public class ExpenseController {
     }
 
     @PostMapping("/{id}/void")
-    @PreAuthorize("hasAuthority('EXPENSE_WRITE')")
+    @PreAuthorize("hasAuthority('EXPENSE_VOID')")
     @Operation(summary = "Anula un egreso; si estaba confirmado genera la reversión de caja")
     public ExpenseResponse voidExpense(@PathVariable UUID id,
             @RequestParam(required = false) UUID institutionId,

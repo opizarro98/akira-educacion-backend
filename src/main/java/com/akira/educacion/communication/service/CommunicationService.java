@@ -105,6 +105,9 @@ public class CommunicationService {
     public CommunicationResponse markOpened(UUID institutionId, UUID id) {
         Communication communication = lock(institutionId, id);
         if (communication.getStatus() == CommunicationStatus.OPENED) {
+            // Cada apertura del enlace se audita, aunque el estado ya sea OPENED.
+            auditService.record("COMMUNICATION_OPENED_AGAIN", "Communication", communication.getId(),
+                    institutionId, "nueva apertura del enlace wa.me; el envío no está confirmado");
             return toResponse(communication);
         }
         if (communication.getStatus() == CommunicationStatus.FAILED) {

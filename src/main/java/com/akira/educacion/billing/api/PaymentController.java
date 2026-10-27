@@ -102,7 +102,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/allocations/{allocationId}/reverse")
-    @PreAuthorize("hasAuthority('PAYMENT_APPLY')")
+    @PreAuthorize("hasAuthority('PAYMENT_REVERSE')")
     @Operation(summary = "Revierte una aplicación y restaura el saldo de la obligación")
     public PaymentResponse reverseAllocation(@PathVariable UUID id, @PathVariable UUID allocationId,
             @RequestParam(required = false) UUID institutionId,

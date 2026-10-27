@@ -346,6 +346,48 @@ indica que el usuario abrió el enlace.
   puede actualizar coincidencias existentes solo con `allowUpdateExisting=true`.
 - El archivo se procesa en memoria; solo se guardan nombre, tamaño y hash SHA-256 para auditoría.
 
+## Endpoints de la Fase 5B
+
+### Administración de usuarios
+
+La institución se resuelve en el backend: token para usuarios institucionales y
+`institutionId` explícito y auditado para `PLATFORM_ADMIN`.
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/api/v1/users?institutionId=&search=&page=&size=` | `USER_READ` |
+| GET | `/api/v1/users/roles` | `USER_READ` |
+| GET | `/api/v1/users/{id}` | `USER_READ` |
+| POST | `/api/v1/users` | `USER_WRITE` |
+| PUT | `/api/v1/users/{id}` | `USER_WRITE` |
+| PATCH | `/api/v1/users/{id}/status` | `USER_WRITE` |
+| PUT | `/api/v1/users/{id}/roles` | `USER_WRITE` |
+| POST | `/api/v1/users/{id}/password-reset` | `USER_WRITE` |
+| PUT | `/api/v1/users/me/password` | autenticado |
+
+- Solo se pueden asignar roles institucionales; `PLATFORM_ADMIN` se rechaza.
+- Un administrador no puede desactivarse a sí mismo ni cambiar sus propios roles.
+- La auditoría registra creación, edición, activación, desactivación, cambio de roles y
+  restablecimiento de contraseña, sin guardar contraseñas.
+- `ActiveUserFilter` invalida en cada petición los tokens de usuarios desactivados.
+
+### Permisos financieros granulares
+
+La migración `V13__phase5b_financial_permissions.sql` separa:
+
+- `EXPENSE_CREATE`, `EXPENSE_UPDATE`, `EXPENSE_CONFIRM`, `EXPENSE_VOID`
+- `PAYMENT_REVERSE`
+
+Se conceden a `PLATFORM_ADMIN`, `INSTITUTION_ADMIN` y `TREASURY`, los mismos roles que antes
+tenían `EXPENSE_WRITE` / `PAYMENT_APPLY`. El negocio aún no definió segregación de funciones.
+`EXPENSE_WRITE` queda obsoleto y sin concesiones.
+
+### Operación y salud
+
+- `GET /actuator/health` es público y se usa como healthcheck del contenedor.
+- Los archivos de despliegue están en la raíz: `compose.yaml`, `.env.example`, Dockerfiles y
+  `nginx.conf`.
+
 ## Usuarios de desarrollo
 
 Se crean solo con el perfil `dev` y `APP_SEED_ENABLED=true`:

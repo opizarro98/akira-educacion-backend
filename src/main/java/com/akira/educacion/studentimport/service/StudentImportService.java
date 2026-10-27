@@ -124,25 +124,49 @@ public class StudentImportService {
         List<StudentImportRow> rows = rowRepository.findByImportIdOrderByRowNumberAsc(batch.getId());
         int imported = 0;
         int updated = 0;
+        int rejected = 0;
 
         for (StudentImportRow row : rows) {
             if (row.getRowStatus() == ImportRowStatus.VALID) {
+                // La fila pudo dejar de ser válida entre la vista previa y la
+                // confirmación (por ejemplo, otro lote ya creó el estudiante).
+                // Se comprueba antes de crear para no marcar la transacción
+                // como rollback-only y conservar el resto del lote.
+                Optional<Student> appeared = findExistingStudent(institutionId, row);
+                if (appeared.isPresent()) {
+                    row.setRowStatus(ImportRowStatus.ERROR);
+                    row.setExistingStudentId(appeared.get().getId());
+                    row.setErrors(appendError(row.getErrors(),
+                            "No se importó: el estudiante ya existe en la institución"));
+                    rejected++;
+                    continue;
+                }
                 StudentResponse created = studentService.create(institutionId, toCreateRequest(row));
                 row.setCreatedStudentId(created.id());
                 imported++;
             } else if (row.getRowStatus() == ImportRowStatus.DUPLICATE_EXISTING
                     && allowUpdateExisting && row.getExistingStudentId() != null) {
                 Student existing = studentService.find(institutionId, row.getExistingStudentId());
-                studentService.update(institutionId, existing.getId(), toUpdateRequest(row, existing));
+                String before = describeStudent(existing);
+                UpdateStudentRequest updateRequest = toUpdateRequest(row, existing);
+                studentService.update(institutionId, existing.getId(), updateRequest);
+                Student updatedStudent = studentService.find(institutionId, existing.getId());
+                String after = describeStudent(updatedStudent);
                 row.setCreatedStudentId(existing.getId());
                 row.setUpdatedExisting(true);
                 updated++;
+                auditService.record("STUDENT_IMPORT_ROW_UPDATED", "Student", existing.getId(), institutionId,
+                        "import=" + batch.getId() + "; row=" + row.getRowNumber()
+                                + "; before={" + before + "}; after={" + after + "}");
             }
         }
         rowRepository.saveAll(rows);
 
         batch.setImportedRows(imported);
         batch.setUpdatedRows(updated);
+        if (rejected > 0) {
+            batch.setErrorRows(batch.getErrorRows() + rejected);
+        }
         batch.setStatus(StudentImportStatus.IMPORTED);
         batch.setConfirmedByEmail(actorEmail());
         batch.setConfirmedAt(Instant.now());
@@ -150,6 +174,7 @@ public class StudentImportService {
 
         auditService.record("STUDENT_IMPORT_CONFIRMED", "StudentImport", saved.getId(), institutionId,
                 "file=" + saved.getFileName() + "; imported=" + imported + "; updated=" + updated
+                        + "; rejectedAtConfirm=" + rejected
                         + "; skippedErrors=" + saved.getErrorRows() + "; allowUpdateExisting="
                         + allowUpdateExisting);
         return toResponse(saved, rows);
@@ -271,6 +296,45 @@ public class StudentImportService {
                 null);
     }
 
+    /**
+     * Resume los campos que una importación puede modificar. La identificación
+     * se enmascara para no dejar documentos completos en la auditoría.
+     */
+    private String describeStudent(Student student) {
+        return "firstName=" + student.getFirstName()
+                + "; lastName=" + student.getLastName()
+                + "; documentType=" + student.getDocumentType()
+                + "; documentNumber=" + maskDocument(student.getDocumentNumber())
+                + "; birthDate=" + student.getBirthDate()
+                + "; admissionDate=" + student.getAdmissionDate()
+                + "; status=" + student.getStatus()
+                + "; email=" + student.getEmail()
+                + "; phone=" + student.getPhone();
+    }
+
+    private Optional<Student> findExistingStudent(UUID institutionId, StudentImportRow row) {
+        if (row.getDocumentNumber() != null) {
+            return studentRepository.findByInstitutionIdAndDocumentNumberIgnoreCase(institutionId,
+                    row.getDocumentNumber());
+        }
+        if (row.getBirthDate() != null && row.getFirstName() != null && row.getLastName() != null) {
+            return studentRepository.findFirstByInstitutionIdAndFirstNameIgnoreCaseAndLastNameIgnoreCaseAndBirthDate(
+                    institutionId, row.getFirstName(), row.getLastName(), row.getBirthDate());
+        }
+        return Optional.empty();
+    }
+
+    private String maskDocument(String documentNumber) {
+        if (documentNumber == null || documentNumber.isBlank()) {
+            return null;
+        }
+        String trimmed = documentNumber.trim();
+        if (trimmed.length() <= 4) {
+            return "***";
+        }
+        return "***" + trimmed.substring(trimmed.length() - 4);
+    }
+
     private void applyCounts(StudentImport batch, List<StudentImportRow> rows) {
         int errors = 0;
         int duplicates = 0;
@@ -368,6 +432,13 @@ public class StudentImportService {
             return List.of();
         }
         return List.of(errors.split("\\R"));
+    }
+
+    private String appendError(String current, String message) {
+        if (current == null || current.isBlank()) {
+            return message;
+        }
+        return current + "\n" + message;
     }
 
     private Institution loadInstitution(UUID institutionId) {

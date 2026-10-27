@@ -19,5 +19,21 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
 
     boolean existsByEmailIgnoreCase(String email);
 
+    boolean existsByIdAndActiveTrue(UUID id);
+
     Page<AppUser> findByInstitutionId(UUID institutionId, Pageable pageable);
+
+    @EntityGraph(attributePaths = { "roles", "institution" })
+    @Query("""
+            select u from AppUser u
+            where u.institution.id = :institutionId
+              and (lower(u.email) like :pattern or lower(u.fullName) like :pattern)
+            """)
+    Page<AppUser> searchByInstitution(@Param("institutionId") UUID institutionId,
+            @Param("pattern") String pattern, Pageable pageable);
+
+    @EntityGraph(attributePaths = { "roles", "institution" })
+    @Query("select u from AppUser u where u.id = :id and u.institution.id = :institutionId")
+    Optional<AppUser> findByIdAndInstitutionId(@Param("id") UUID id,
+            @Param("institutionId") UUID institutionId);
 }

@@ -32,12 +32,21 @@ public final class PermissionCodes {
     public static final String PAYMENT_WRITE = "PAYMENT_WRITE";
     public static final String PAYMENT_VERIFY = "PAYMENT_VERIFY";
     public static final String PAYMENT_APPLY = "PAYMENT_APPLY";
+    public static final String PAYMENT_REVERSE = "PAYMENT_REVERSE";
     public static final String PAYMENT_VOID = "PAYMENT_VOID";
     public static final String RECEIPT_READ = "RECEIPT_READ";
 
     public static final String EXPENSE_CATEGORY_READ = "EXPENSE_CATEGORY_READ";
     public static final String EXPENSE_CATEGORY_WRITE = "EXPENSE_CATEGORY_WRITE";
     public static final String EXPENSE_READ = "EXPENSE_READ";
+    public static final String EXPENSE_CREATE = "EXPENSE_CREATE";
+    public static final String EXPENSE_UPDATE = "EXPENSE_UPDATE";
+    public static final String EXPENSE_CONFIRM = "EXPENSE_CONFIRM";
+    public static final String EXPENSE_VOID = "EXPENSE_VOID";
+    /**
+     * @deprecated reemplazado en Fase 5B por EXPENSE_CREATE/UPDATE/CONFIRM/VOID.
+     */
+    @Deprecated
     public static final String EXPENSE_WRITE = "EXPENSE_WRITE";
     public static final String CASH_MOVEMENT_READ = "CASH_MOVEMENT_READ";
     public static final String FINANCE_REPORT_READ = "FINANCE_REPORT_READ";
